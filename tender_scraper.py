@@ -8,7 +8,6 @@ async def scrape_tenders():
     print("正在啟動瀏覽器...")
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        # 增加視窗大小確保按鈕不會因為響應式設計而隱藏
         context = await browser.new_context(
             viewport={'width': 1280, 'height': 800},
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
@@ -19,35 +18,27 @@ async def scrape_tenders():
         print(f"正在前往: {url}")
         
         try:
-            # 增加等待時間並使用 commit 確保頁面載入
-            await page.goto(url, wait_until="networkidle", timeout=60000)
+            # 增加等待時間
+            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
             print(f"目前頁面標題: {await page.title()}")
 
-            # 嘗試多種方式定位查詢按鈕
-            print("正在尋找查詢按鈕...")
-            # 根據使用者提供的 HTML 結構，使用 ID 定位最準確
-            search_button = page.locator("#basicTenderSearchId")
-            
-            # 檢查是否存在，如果不存在則使用文字定位備援
-            if await search_button.count() == 0:
-                print("找不到 #basicTenderSearchId，嘗試使用文字定位...")
-                search_button = page.get_by_text("查詢", exact=True).first
+            # 確保檔案至少會被建立
+            if not os.path.exists("tenders.json"):
+                with open("tenders.json", "w", encoding="utf-8") as f:
+                    json.dump([], f)
 
-            # 等待按鈕出現、可見且可用
-            await search_button.wait_for(state="visible", timeout=15000)
-            print("點擊查詢按鈕...")
-            await search_button.click()
+            print("嘗試使用 JavaScript 強制觸發查詢按鈕...")
+            # 直接在頁面執行查詢函數，避開所有定位問題
+            await page.evaluate("() => { if(typeof basicTenderSearch === 'function') { basicTenderSearch(); } else { document.getElementById('basicTenderSearchId').click(); } }")
 
             # 等待結果表格載入
             print("等待搜尋結果...")
             try:
-                await page.wait_for_selector("#print_area", timeout=30000)
+                # 增加等待時間至 60 秒，政府網站有時很慢
+                await page.wait_for_selector("#print_area", timeout=60000)
             except:
-                print("搜尋結果表格 (#print_area) 未出現，可能是查無資料或網站回應慢。")
-                # 即使沒資料也產生空檔案，避免 Git 報錯
-                with open("tenders.json", "w", encoding="utf-8") as f:
-                    json.dump([], f)
+                print("搜尋結果未出現，可能需要更多時間或查無資料。")
                 return
 
             # 抓取表格行
@@ -85,10 +76,6 @@ async def scrape_tenders():
 
         except Exception as e:
             print(f"發生錯誤: {e}")
-            # 確保即使發生錯誤也會產生一個空的 JSON，防止 Git add 報錯
-            if not os.path.exists("tenders.json"):
-                with open("tenders.json", "w", encoding="utf-8") as f:
-                    json.dump([], f)
             raise e
         finally:
             await browser.close()
