@@ -2,19 +2,20 @@ name: Daily Tender Scrape
 
 on:
   schedule:
-    # 每天凌晨 00:00 (UTC) 執行，台灣時間為 08:00
     - cron: '0 0 * * *'
-  workflow_dispatch: # 允許手動從 GitHub 介面點擊執行
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 允許 Action 將檔案 commit 回來
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 確保獲取完整歷史以利 commit
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,19 +25,31 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install Playwright Browsers
-        run: |
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install playwright
           python -m playwright install --with-deps chromium
 
       - name: Run scraper
         run: |
           python tender_scraper.py
+        continue-on-error: true # 即使爬蟲報錯也繼續，由後續 Git 步驟處理檔案
 
       - name: Commit and push if changed
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
+          
+          # 建立檔案（如果不存在），確保 git add 不會崩潰
+          if [ ! -f tenders.json ]; then
+            echo "[]" > tenders.json
+          fi
+          
           git add tenders.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto update: tenders.json $(date)" && git push)
+          
+          # 檢查是否有異動，有才 commit
+          if ! git diff --cached --quiet; then
+            git commit -m "Auto update: tenders.json $(date)"
+            git push
+          else
+            echo "No changes to commit"
+          fi

@@ -1,0 +1,10 @@
+# 忽略 Python 快取
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+.venv/
+
+# 但必須包含資料檔案
+!tenders.json
